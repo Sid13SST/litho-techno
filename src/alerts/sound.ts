@@ -45,6 +45,45 @@ export class AlertSound {
     else this.startSiren()
   }
 
+  /* ---- structural-stability alarm: a separate channel with a low "BAH-bah" klaxon ---- */
+  private structTimer: number | null = null
+
+  playStructural(on: boolean) {
+    if (on === (this.structTimer !== null)) return
+    if (!on) { clearInterval(this.structTimer!); this.structTimer = null; return }
+    this.unlock()
+    if (!this.ctx) return
+    this.klaxon()
+    this.structTimer = window.setInterval(() => this.klaxon(), 1150)
+  }
+
+  private klaxon() {
+    if (!this.ctx || !this.master) return
+    const ctx = this.ctx
+    const t = ctx.currentTime + 0.02
+    // two low horn blasts, each a pair of slightly detuned square waves through a low-pass (buzzy, horn-like)
+    for (const [start, f, dur] of [[0, 392, 0.42], [0.5, 294, 0.42]] as const) {
+      const filter = ctx.createBiquadFilter()
+      filter.type = 'lowpass'
+      filter.frequency.value = 1300
+      const g = ctx.createGain()
+      g.gain.setValueAtTime(0.0001, t + start)
+      g.gain.exponentialRampToValueAtTime(0.16, t + start + 0.03)
+      g.gain.setValueAtTime(0.16, t + start + dur - 0.06)
+      g.gain.exponentialRampToValueAtTime(0.0001, t + start + dur)
+      filter.connect(g).connect(this.master)
+      for (const detune of [-8, 8]) {
+        const osc = ctx.createOscillator()
+        osc.type = 'square'
+        osc.frequency.value = f
+        osc.detune.value = detune
+        osc.connect(filter)
+        osc.start(t + start)
+        osc.stop(t + start + dur + 0.05)
+      }
+    }
+  }
+
   stop() {
     this.level = 0
     if (this.timer !== null) { clearInterval(this.timer); this.timer = null }

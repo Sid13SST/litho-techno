@@ -36,7 +36,7 @@ export const DEFAULT_PARAMS: SimParams = {
   zetaD: optimalTmd(0.05).zeta,
   stroke: 1.8,
   scenario: 'quake',
-  magnitude: 6.8,
+  magnitude: 6.5,
   seed: 7,
 }
 

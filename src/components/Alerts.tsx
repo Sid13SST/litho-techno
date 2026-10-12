@@ -1,5 +1,5 @@
-import { BellRing, Box, Cpu, Hand, History, Shield, Siren, Trash2, Vibrate } from 'lucide-react'
-import { ALERT_LEVELS, type AlertMonitor } from '../alerts/useAlertMonitor'
+import { BellRing, Box, Building2, Cpu, Hand, History, Shield, Siren, Trash2, Vibrate } from 'lucide-react'
+import { ALERT_LEVELS, type AlertMonitor, type StabilityTrigger } from '../alerts/useAlertMonitor'
 import { alertSound } from '../alerts/sound'
 import { Badge, Button, Segmented, Slider, Toggle, cx } from './ui'
 
@@ -62,6 +62,13 @@ export default function Alerts({ alert, go }: { alert: AlertMonitor; go: (tab: '
             <Segmented<1 | 2 | 3> size="sm" value={settings.threshold} onChange={(threshold) => alert.setSettings({ threshold })} options={[1, 2, 3].map((l) => ({ value: l as 1 | 2 | 3, label: ALERT_LEVELS[l].name }))} />
             <div className="mt-1 text-[11.5px] text-slate-500">≥ {ALERT_LEVELS[settings.threshold].min.toFixed(2)} g ground or sensor acceleration</div>
           </div>
+          <Toggle checked={settings.structural} onChange={(structural) => { alertSound.unlock(); alert.setSettings({ structural }) }} label={<span className="flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5 text-fuchsia-300" />Stability alarm</span>} sub="Separate low klaxon when a tower's stability drops" />
+          {settings.structural && (
+            <div>
+              <div className="mb-1.5 text-[13px] font-medium text-slate-300">Ring when a tower becomes</div>
+              <Segmented<StabilityTrigger> size="sm" value={settings.structLevel} onChange={(structLevel) => alert.setSettings({ structLevel })} options={[{ value: 'Marginal', label: 'Marginal (≥1.5 % drift)' }, { value: 'Unstable', label: 'Unstable (≥2.5 %)' }]} />
+            </div>
+          )}
           <Toggle checked={settings.vibrate} onChange={(vibrate) => alert.setSettings({ vibrate })} label={<span className="flex items-center gap-1.5"><Vibrate className="h-3.5 w-3.5" />Vibrate (phones)</span>} />
           <p className="text-[11.5px] leading-snug text-slate-500">The alarm sounds only while an alert is active, and stops when shaking ends or you press 'I'm safe'. Alerts watch the Simulation Lab and the Arduino sensors from every page.</p>
         </div>
@@ -128,10 +135,12 @@ export default function Alerts({ alert, go }: { alert: AlertMonitor; go: (tab: '
                   {history.map((e) => (
                     <tr key={e.start}>
                       <td className="num py-2 text-slate-300">{new Date(e.start).toLocaleTimeString()}</td>
-                      <td className="py-2"><span className="font-semibold" style={{ color: ALERT_LEVELS[e.level].color }}>{ALERT_LEVELS[e.level].name}</span></td>
-                      <td className="num py-2 text-right text-slate-200">{e.peak.toFixed(3)} g</td>
+                      <td className="py-2">{e.kind === 'structure'
+                        ? <span className="font-semibold text-fuchsia-300" title={e.detail}>Stability</span>
+                        : <span className="font-semibold" style={{ color: ALERT_LEVELS[e.level].color }}>{ALERT_LEVELS[e.level].name}</span>}</td>
+                      <td className="num py-2 text-right text-slate-200">{e.kind === 'structure' ? `${e.peak.toFixed(0)}% margin` : `${e.peak.toFixed(3)} g`}</td>
                       <td className="num py-2 text-right text-slate-400">{((e.end - e.start) / 1000).toFixed(0)} s</td>
-                      <td className="py-2 pl-3 text-slate-400">{e.source}</td>
+                      <td className="py-2 pl-3 text-slate-400">{e.kind === 'structure' ? e.detail?.split(' · ')[0] : e.source}</td>
                     </tr>
                   ))}
                 </tbody>

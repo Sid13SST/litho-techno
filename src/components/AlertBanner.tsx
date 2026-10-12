@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BellOff, CheckCircle2, ChevronRight, ShieldCheck, Siren, Volume2, VolumeX } from 'lucide-react'
+import { BellOff, Building2, CheckCircle2, ChevronRight, ShieldCheck, Siren, Volume2, VolumeX } from 'lucide-react'
 import { ALERT_LEVELS, type AlertMonitor } from '../alerts/useAlertMonitor'
 import { cx } from './ui'
 
@@ -13,6 +13,7 @@ const LEVEL_STYLE = [
 /** Sticky, impossible-to-miss alert strip + pulsing screen-edge glow while the ground is shaking. */
 export default function AlertBanner({ alert, onOpen }: { alert: AlertMonitor; onOpen: () => void }) {
   const { state, settings } = alert
+  const sa = state.structural
   const [, tick] = useState(0)
   useEffect(() => {
     if (!state.active) return
@@ -45,8 +46,10 @@ export default function AlertBanner({ alert, onOpen }: { alert: AlertMonitor; on
         />
       )}
 
+      {(state.active || sa.active) && (
+        <div className="sticky top-[61px] z-30">
       {state.active && (
-        <div role="alert" aria-live="assertive" className="sticky top-[61px] z-30">
+        <div role="alert" aria-live="assertive">
           <div className={cx('relative overflow-hidden bg-gradient-to-r shadow-[0_10px_40px_-10px_rgba(244,63,94,.6)] ring-1', style.bg, style.ring, style.text)}>
             <div className="alert-stripes pointer-events-none absolute inset-0 opacity-25" />
             <div className="relative mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3 sm:px-6">
@@ -90,6 +93,41 @@ export default function AlertBanner({ alert, onOpen }: { alert: AlertMonitor; on
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* structural-stability alarm: its own colour, icon and klaxon */}
+      {sa.active && (
+        <div role="alert" aria-live="assertive" className="relative overflow-hidden bg-gradient-to-r from-violet-700/95 to-fuchsia-700/95 text-white shadow-[0_10px_40px_-10px_rgba(192,38,211,.6)] ring-1 ring-fuchsia-300/50">
+          {sa.sounding && <div className="alert-stripes pointer-events-none absolute inset-0 opacity-20" />}
+          <div className="relative mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 sm:px-6">
+            <div className="flex items-center gap-3">
+              <span className="relative grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-black/25">
+                {sa.sounding && <span className="ping-soft absolute inset-0 rounded-xl bg-fuchsia-300/40" />}
+                <Building2 className="relative h-5 w-5" />
+              </span>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.18em] text-fuchsia-100/90">Structural alarm · stability {sa.status.toLowerCase()}</div>
+                <div className="text-[15px] font-extrabold leading-tight sm:text-[17px]">
+                  {sa.tower}: stability margin down to <span className="num">{sa.stability.toFixed(0)}%</span>. {sa.status === 'Unstable' ? 'Collapse risk. Evacuate once shaking stops.' : 'Heavy damage likely. Keep clear and inspect before re-entry.'}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-[12px] font-semibold sm:ml-auto">
+              <Stat label="Worst floor" value={`F${sa.worstFloor}`} />
+              <Stat label="P-Δ θ" value={sa.theta.toFixed(3)} />
+              <Stat label="Source" value={sa.source ?? '—'} />
+            </div>
+            {!sa.acknowledged ? (
+              <button onClick={alert.acknowledgeStructural} className="flex items-center gap-1.5 rounded-lg bg-white px-3 py-2 text-[13px] font-bold text-violet-900 transition hover:bg-white/90">
+                <BellOff className="h-4 w-4" />Silence
+              </button>
+            ) : (
+              <span className="flex items-center gap-1.5 rounded-lg bg-black/25 px-3 py-2 text-[12px] font-semibold"><BellOff className="h-4 w-4" />Silenced</span>
+            )}
+          </div>
+        </div>
+      )}
         </div>
       )}
 

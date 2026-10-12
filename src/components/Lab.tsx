@@ -148,10 +148,11 @@ export default function Lab({ engine, params, setParams, alert }: { engine: Seis
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
           <div className="panel p-4">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-              <div className="label flex items-center gap-2"><Activity className="h-3.5 w-3.5" />Roof displacement (m)</div>
+              <div className="label flex items-center gap-2"><Activity className="h-3.5 w-3.5" />Roof displacement (m) · dashed = sway envelope</div>
               <div className="flex items-center gap-3 text-xs text-slate-400">
                 <Legend color="bg-bare" label="Conventional" />
                 <Legend color="bg-tmd" label="With TMD" />
+                <span className="hidden items-center gap-1.5 sm:flex"><span className="h-2.5 w-4 rounded-sm bg-emerald-400/35" />sway removed by TMD</span>
                 <span className="hidden items-center gap-1.5 sm:flex"><span className="h-2.5 w-4 rounded-sm bg-amber-400/20" />strong motion</span>
               </div>
             </div>

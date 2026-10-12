@@ -46,7 +46,10 @@ function ConditionCard({ kind, m, compare, disabled }: { kind: 'bare' | 'tmd'; m
   const started = m.samples > 0
   const healthDelta = compare ? c.health - assessCondition(compare).health : 0
   return (
-    <div className={cx('rounded-xl bg-ink-950/50 p-4 ring-1', kind === 'bare' ? 'ring-rose-400/15' : 'ring-sky-400/20', disabled && 'opacity-50')}>
+    <div
+      className={cx('rounded-xl bg-ink-950/50 p-4 ring-1 transition-shadow', kind === 'bare' ? 'ring-rose-400/15' : 'ring-sky-400/20', disabled && 'opacity-50')}
+      style={started && c.status !== 'Stable' ? { boxShadow: '0 0 0 2px #c026d3, 0 0 30px -6px #c026d3' } : undefined}
+    >
       <div className="flex items-center justify-between gap-2">
         <div className={cx('flex items-center gap-2 text-[12px] font-bold uppercase tracking-wider', color)}>
           <Building className="h-4 w-4" />{kind === 'bare' ? 'Conventional tower' : 'Tower with TMD'}

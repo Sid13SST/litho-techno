@@ -100,8 +100,55 @@ export function LiveChart({ engine, windowSec = 16 }: { engine: SeismicEngine; w
       }
       g.strokeStyle = color; g.lineWidth = width; g.lineJoin = 'round'; g.stroke()
     }
+    // rolling 3 s sway envelope (√2·RMS ≈ amplitude) of each tower; the band between them is the sway the TMD removes
+    const W = 180 // samples (3 s at 60 Hz)
+    const envB: number[] = [], envT: number[] = [], envX: number[] = []
+    let sb = 0, st = 0
+    const iStart = Math.max(0, i0 - W)
+    for (let i = iStart; i < hist.count; i++) {
+      sb += hist.bare[i] ** 2; st += hist.tmd[i] ** 2
+      if (i - W >= iStart) { sb -= hist.bare[i - W] ** 2; st -= hist.tmd[i - W] ** 2 }
+      if (i < i0) continue
+      const k = Math.min(W, i - iStart + 1)
+      envB.push(Math.SQRT2 * Math.sqrt(Math.max(0, sb) / k)); envT.push(Math.SQRT2 * Math.sqrt(Math.max(0, st) / k)); envX.push(X(hist.t[i]))
+    }
+    if (envX.length > 1) {
+      for (const s of [1, -1]) {
+        g.beginPath()
+        envX.forEach((x, j) => (j ? g.lineTo(x, Y(s * envB[j])) : g.moveTo(x, Y(s * envB[j]))))
+        for (let j = envX.length - 1; j >= 0; j--) g.lineTo(envX[j], Y(s * Math.min(envT[j], envB[j])))
+        g.closePath()
+        g.fillStyle = 'rgba(52,211,153,0.13)' // green = sway removed by the damper
+        g.fill()
+      }
+    }
     draw(hist.bare, BARE, 1.6, true)
-    draw(hist.tmd, TMD, 2, true)
+    draw(hist.tmd, TMD, 2.2, false)
+    if (envX.length > 1) {
+      g.setLineDash([5, 4])
+      for (const [env, col] of [[envB, BARE], [envT, TMD]] as const) {
+        for (const s of [1, -1]) {
+          g.beginPath()
+          envX.forEach((x, j) => (j ? g.lineTo(x, Y(s * env[j])) : g.moveTo(x, Y(s * env[j]))))
+          g.strokeStyle = col; g.lineWidth = 1.3; g.stroke()
+        }
+      }
+      g.setLineDash([])
+      // live badge: reduction over the last 3 s
+      const eb = envB[envB.length - 1], et = envT[envT.length - 1]
+      if (eb > 0.01) {
+        const red = (1 - et / eb) * 100
+        const txt = red >= 0 ? `TMD cutting sway by ${red.toFixed(0)}%` : `TMD still building up (${red.toFixed(0)}%)`
+        g.font = '700 11px Inter, sans-serif'
+        const tw = g.measureText(txt).width
+        const bx = w - padR - tw - 18, by = padT + 4
+        g.fillStyle = red >= 20 ? 'rgba(16,185,129,0.92)' : 'rgba(30,41,59,0.92)'
+        g.beginPath(); g.roundRect?.(bx, by, tw + 14, 20, 6); g.fill()
+        g.fillStyle = red >= 20 ? '#04130d' : '#e2e8f0'; g.textAlign = 'left'; g.textBaseline = 'middle'
+        g.fillText(txt, bx + 7, by + 10.5)
+        g.font = '10px "JetBrains Mono", monospace'
+      }
+    }
     g.lineWidth = 1
     if (hist.count) {
       const i = hist.count - 1

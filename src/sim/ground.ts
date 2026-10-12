@@ -49,7 +49,7 @@ export const SCENARIOS: Record<Scenario, { name: string; short: string; blurb: s
   quake: {
     name: 'Soft-soil earthquake',
     short: 'Earthquake',
-    blurb: 'Random broadband shaking filtered by a soft soil layer (Kanai–Tajimi), the long-period kind that excites tall buildings.',
+    blurb: 'Soft lake-bed soil (like Mexico City 1985) filters the shaking into long, rhythmic waves near the tower period, the kind that makes tall buildings resonate.',
   },
   resonance: {
     name: 'Resonance test',
@@ -88,8 +88,8 @@ export function makeRecord(scenario: Scenario, magnitude: number, f1: number, se
     raw = new Float64Array(n)
     disp = new Float64Array(n)
     // Clough–Penzien: white noise → soil filter (wg, zg) → high-pass (wf, zf)
-    const wg = 2 * Math.PI * f1 * 1.08
-    const zg = 0.32
+    const wg = 2 * Math.PI * f1 // lakebed-type soft soil: narrow-band shaking centred on the tower period
+    const zg = 0.12
     const wf = 0.12 * wg
     const zf = 0.7
     let xg = 0, vg = 0, xf = 0, vf = 0

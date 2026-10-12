@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useRef, useState } from 'react'
 import { Check, CircleDot, Copy, Cpu, Download, Plug, PlugZap, Square, Trash2, Usb, Zap } from 'lucide-react'
 import { useSensorBench, convert, UNIT_LABEL, type Unit } from '../hooks/useSensorBench'
 import { SensorChart } from './charts'
@@ -80,9 +80,8 @@ const WIRING = [
   ['AD0 (sensor 2)', '5V', 'Address 0x69: tower with damper'],
 ]
 
-export default function Bench({ s, alert }: { s: ReturnType<typeof useSensorBench>; alert: AlertMonitor }) {
+export default function Bench({ s, alert, engine }: { s: ReturnType<typeof useSensorBench>; alert: AlertMonitor; engine: SensorEngine }) {
   const [copied, setCopied] = useState(false)
-  const engine = useMemo(() => new SensorEngine(s.sample), [s.sample])
   const [view, setView] = useState<ViewMode>('front')
   const [colorMode, setColorMode] = useState<ColorMode>('live')
   const vc = useViewControls()

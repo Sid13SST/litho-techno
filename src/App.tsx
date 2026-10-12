@@ -8,6 +8,7 @@ import AlertBanner from './components/AlertBanner'
 import { useSensorBench } from './hooks/useSensorBench'
 import { useAlertMonitor } from './alerts/useAlertMonitor'
 import { alertSound } from './alerts/sound'
+import { SensorEngine } from './sim/sensorEngine'
 import { frequencyResponse, type SimParams } from './sim/physics'
 import { cx } from './components/ui'
 
@@ -30,7 +31,8 @@ export default function App() {
   const [params, setParamsState] = useState<SimParams>(engine.p)
   // sensors live at app level so the alert monitor sees them from any page (and the port stays open across tabs)
   const bench = useSensorBench()
-  const alert = useAlertMonitor(engine, bench)
+  const sensorEngine = useMemo(() => new SensorEngine(bench.sample), [bench.sample])
+  const alert = useAlertMonitor(engine, bench, sensorEngine)
 
   // browsers block audio until a user gesture: unlock the alarm on the first interaction anywhere
   useEffect(() => {
@@ -109,7 +111,7 @@ export default function App() {
         </div>
 
         {tab === 'lab' && <Lab engine={engine} params={params} setParams={setParams} alert={alert} />}
-        {tab === 'bench' && <Bench s={bench} alert={alert} />}
+        {tab === 'bench' && <Bench s={bench} alert={alert} engine={sensorEngine} />}
         {tab === 'alerts' && <Alerts alert={alert} go={go} />}
         {tab === 'science' && <Science params={params} setParams={setParams} />}
       </main>

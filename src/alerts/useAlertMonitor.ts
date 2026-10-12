@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { SeismicEngine } from '../sim/engine'
+import { assessCondition, type SeismicEngine, type TowerMetrics } from '../sim/engine'
 import { G } from '../sim/physics'
 import { alertSound } from './sound'
 
@@ -17,8 +17,22 @@ export function levelFor(g: number) {
   return 0
 }
 
-export interface AlertSettings { sound: boolean; volume: number; threshold: 1 | 2 | 3; vibrate: boolean }
-export interface AlertEvent { start: number; end: number; peak: number; level: number; source: AlertSource }
+export type StabilityTrigger = 'Marginal' | 'Unstable'
+export interface AlertSettings { sound: boolean; volume: number; threshold: 1 | 2 | 3; vibrate: boolean; structural: boolean; structLevel: StabilityTrigger }
+export interface AlertEvent { start: number; end: number; peak: number; level: number; source: AlertSource; kind?: 'quake' | 'structure'; detail?: string }
+
+/** structural-stability alarm: fires when a tower's stability status drops to Marginal/Unstable */
+export interface StructuralState {
+  active: boolean
+  acknowledged: boolean
+  tower: string
+  status: 'Stable' | 'Marginal' | 'Unstable'
+  stability: number // % margin to the 2.5 % collapse-prevention drift
+  theta: number
+  worstFloor: number
+  source: AlertSource | null
+  sounding: boolean
+}
 export interface AlertState {
   active: boolean
   acknowledged: boolean
@@ -30,9 +44,13 @@ export interface AlertState {
   startedAt: number
   eta: number | null // s until the simulated strong phase (early warning)
   allClearAt: number // timestamp of the last event end (for the "all clear" toast)
+  structural: StructuralState
 }
 
+const STRUCT_IDLE: StructuralState = { active: false, acknowledged: false, tower: '', status: 'Stable', stability: 100, theta: 0, worstFloor: 0, source: null, sounding: false }
+
 const SETTINGS_KEY = 'lithotechno-alert-settings'
+const DEFAULT_SETTINGS: AlertSettings = { sound: true, volume: 0.6, threshold: 1, vibrate: true, structural: true, structLevel: 'Marginal' }
 const HISTORY_KEY = 'lithotechno-alert-history'
 const HOLD_MS = 4000 // keep the alert up this long after shaking drops below the threshold
 const TICK = 100
@@ -48,12 +66,16 @@ function testShake(ms: number) {
   return env * 0.22 * (0.75 + 0.25 * Math.abs(Math.sin(t * 9)))
 }
 
-export function useAlertMonitor(engine: SeismicEngine, sensor: { sample: () => { a: number; b: number; active: boolean }; connected: boolean; demo: boolean }) {
-  const [settings, setSettingsState] = useState<AlertSettings>(() => load(SETTINGS_KEY, { sound: true, volume: 0.6, threshold: 1, vibrate: true }))
+export function useAlertMonitor(
+  engine: SeismicEngine,
+  sensor: { sample: () => { a: number; b: number; active: boolean }; connected: boolean; demo: boolean },
+  sensorEngine: SeismicEngine,
+) {
+  const [settings, setSettingsState] = useState<AlertSettings>(() => load(SETTINGS_KEY, DEFAULT_SETTINGS))
   const [history, setHistory] = useState<AlertEvent[]>(() => {
     try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]') } catch { return [] }
   })
-  const [state, setState] = useState<AlertState>({ active: false, acknowledged: false, level: 0, maxLevel: 0, value: 0, peak: 0, source: null, startedAt: 0, eta: null, allClearAt: 0 })
+  const [state, setState] = useState<AlertState>({ active: false, acknowledged: false, level: 0, maxLevel: 0, value: 0, peak: 0, source: null, startedAt: 0, eta: null, allClearAt: 0, structural: STRUCT_IDLE })
 
   const st = useRef(state)
   const env = useRef(0)
@@ -116,6 +138,49 @@ export function useAlertMonitor(engine: SeismicEngine, sensor: { sample: () => {
         }
       }
 
+      // --- structural stability: worst tower across the simulator and the sensor-driven model ---
+      const sources: { e: SeismicEngine; src: AlertSource; live: boolean }[] = [
+        { e: engine, src: 'Simulation', live: engine.playing },
+        { e: sensorEngine, src: sens.connected ? 'Arduino' : 'Virtual table', live: smp.active },
+      ]
+      let worst: { tower: string; c: ReturnType<typeof assessCondition>; src: AlertSource; live: boolean } | null = null
+      for (const { e, src, live } of sources) {
+        if (!e.mBare.samples) continue
+        const towers: [TowerMetrics, string][] = [[e.mBare, 'Conventional tower']]
+        if (e.p.tmdEnabled) towers.push([e.mTmd, 'Tower with TMD'])
+        for (const [m, tower] of towers) {
+          const c = assessCondition(m)
+          if (!worst || c.stability < worst.c.stability) worst = { tower, c, src, live }
+        }
+      }
+      const unsafe = !!worst && (s.structLevel === 'Marginal' ? worst.c.status !== 'Stable' : worst.c.status === 'Unstable')
+      const ps = prev.structural
+      let ns: StructuralState = ps
+      if (s.structural && unsafe && worst) {
+        ns = {
+          active: true,
+          acknowledged: ps.active ? ps.acknowledged : false,
+          tower: worst.tower, status: worst.c.status, stability: worst.c.stability, theta: worst.c.theta,
+          worstFloor: worst.c.worstFloor, source: worst.src,
+          sounding: false,
+        }
+        if (!ps.active) {
+          if (s.vibrate && 'vibrate' in navigator) try { navigator.vibrate([150, 100, 150, 100, 600]) } catch { /* ignore */ }
+          const ev: AlertEvent = { start: now, end: now, peak: worst.c.stability, level: worst.c.status === 'Unstable' ? 3 : 2, source: worst.src, kind: 'structure', detail: `${worst.tower} ${worst.c.status.toLowerCase()} · stability ${worst.c.stability.toFixed(0)}% · floor ${worst.c.worstFloor}` }
+          setHistory((h) => {
+            const nh = [ev, ...h].slice(0, 30)
+            try { localStorage.setItem(HISTORY_KEY, JSON.stringify(nh)) } catch { /* ignore */ }
+            return nh
+          })
+        }
+        // ring while the building is still being shaken; it goes quiet once the run ends but the warning stays up
+        ns.sounding = !ns.acknowledged && s.sound && worst.live
+      } else if (ps.active) {
+        ns = STRUCT_IDLE // metrics were reset (new run) or the alarm was switched off
+      }
+      next.structural = ns
+      alertSound.playStructural(ns.sounding)
+
       // early warning: in the simulation the strong phase is still ahead during the build-up
       next.eta = next.active && top.src === 'Simulation' && engine.t < engine.rec.strongStart ? engine.rec.strongStart - engine.t : null
 
@@ -125,17 +190,24 @@ export function useAlertMonitor(engine: SeismicEngine, sensor: { sample: () => {
 
       const changed = next.active !== prev.active || next.level !== prev.level || next.acknowledged !== prev.acknowledged ||
         Math.abs(next.value - prev.value) > 0.002 || next.source !== prev.source || (next.eta === null) !== (prev.eta === null) ||
-        (next.eta !== null && prev.eta !== null && Math.ceil(next.eta) !== Math.ceil(prev.eta)) || next.allClearAt !== prev.allClearAt
+        (next.eta !== null && prev.eta !== null && Math.ceil(next.eta) !== Math.ceil(prev.eta)) || next.allClearAt !== prev.allClearAt ||
+        ns.active !== ps.active || ns.acknowledged !== ps.acknowledged || ns.sounding !== ps.sounding || ns.status !== ps.status || ns.tower !== ps.tower || Math.abs(ns.stability - ps.stability) >= 1
       st.current = next
       if (changed) setState(next)
     }, TICK)
-    return () => { clearInterval(id); alertSound.stop() }
-  }, [engine])
+    return () => { clearInterval(id); alertSound.stop(); alertSound.playStructural(false) }
+  }, [engine, sensorEngine])
 
   const acknowledge = useCallback(() => {
     st.current = { ...st.current, acknowledged: true }
     setState(st.current)
     alertSound.stop()
+  }, [])
+
+  const acknowledgeStructural = useCallback(() => {
+    st.current = { ...st.current, structural: { ...st.current.structural, acknowledged: true, sounding: false } }
+    setState(st.current)
+    alertSound.playStructural(false)
   }, [])
 
   const runTest = useCallback(() => {
@@ -148,7 +220,7 @@ export function useAlertMonitor(engine: SeismicEngine, sensor: { sample: () => {
     try { localStorage.removeItem(HISTORY_KEY) } catch { /* ignore */ }
   }, [])
 
-  return { state, settings, setSettings, history, acknowledge, runTest, clearHistory, testing: testStart.current !== null }
+  return { state, settings, setSettings, history, acknowledge, acknowledgeStructural, runTest, clearHistory, testing: testStart.current !== null }
 }
 
 export type AlertMonitor = ReturnType<typeof useAlertMonitor>
