@@ -136,7 +136,7 @@ function Tower({ engine, kind, exaggeration, colorMode, facade }: TowerProps) {
   return (
     <group position={[xBase, 0, 0]}>
       {Array.from({ length: n }, (_, j) => {
-        const crown = j >= n - CROWN
+        const crown = kind === 'tmd' && j >= n - CROWN
         return (
           <group key={j} ref={(el) => { storyRefs.current[j] = el }} matrixAutoUpdate={false}>
             {crown ? (
@@ -153,18 +153,23 @@ function Tower({ engine, kind, exaggeration, colorMode, facade }: TowerProps) {
                 <boxGeometry args={[COL, h, COL]} />
               </mesh>
             ))}
-            {crown && [[-1, 0], [1, 0], [0, -1], [0, 1]].map(([sx, sz], i) => (
-              // diagonal bracing on the crown walls
-              <mesh key={`b${i}`} material={mats.steel} position={[(sx * (W - 0.3)) / 2, 0, (sz * (D - 0.3)) / 2]} rotation={sx ? [Math.atan2(W, h) * (i % 2 ? 1 : -1), 0, 0] : [0, 0, Math.atan2(W, h) * (i % 2 ? 1 : -1)]}>
-                <boxGeometry args={[0.18, Math.hypot(W, h) * 0.98, 0.18]} />
+            {crown && [[-1, 0], [1, 0], [0, -1], [0, 1]].flatMap(([sx, sz], i) => [1, -1].map((dir) => (
+              // X-bracing on the crown walls (offset slightly so the two diagonals don't z-fight)
+              <mesh
+                key={`b${i}${dir}`}
+                material={mats.steel}
+                position={[(sx * (W - 0.3)) / 2 + (sx ? 0 : dir * 0.04), 0, (sz * (D - 0.3)) / 2 + (sx ? dir * 0.04 : 0)]}
+                rotation={sx ? [Math.atan2(W, h) * dir, 0, 0] : [0, 0, Math.atan2(W, h) * dir]}
+              >
+                <boxGeometry args={[0.16, Math.hypot(W, h) * 0.98, 0.16]} />
               </mesh>
-            ))}
+            )))}
           </group>
         )
       })}
       {Array.from({ length: n }, (_, j) => {
         // floors inside the crown are open ring-beams so the damper chamber is a clear double-height space
-        const open = j >= n - CROWN && j < n - 1
+        const open = kind === 'tmd' && j >= n - CROWN && j < n - 1
         return open ? (
           <group key={`s${j}`} ref={(el) => { slabRefs.current[j] = el }} position={[0, (j + 1) * h, 0]}>
             {[[0, (D + 0.5) / 2 - 0.4, W + 0.5, 0.8], [0, -(D + 0.5) / 2 + 0.4, W + 0.5, 0.8], [(W + 0.5) / 2 - 0.4, 0, 0.8, D + 0.5], [-(W + 0.5) / 2 + 0.4, 0, 0.8, D + 0.5]].map(([x, z, w, d], i) => (
@@ -214,16 +219,11 @@ function Damper({ engine, storyHeight }: { engine: SeismicEngine; storyHeight: n
   const cableTop = useMemo(() => [[-1.6, -1.6], [1.6, -1.6], [-1.6, 1.6], [1.6, 1.6]].map(([x, z]) => new THREE.Vector3(x, topY, z)), [topY])
   const dampDirs = useMemo(() => [[1, 0], [-1, 0], [0, 1], [0, -1], [0.707, 0.707], [-0.707, 0.707], [0.707, -0.707], [-0.707, -0.707]], [])
   const anchors = useMemo(() => dampDirs.map(([x, z]) => new THREE.Vector3(x * 5.2, floorY, z * 5.2)), [dampDirs, floorY])
-  const plates = useMemo(() => {
-    // stacked steel plates approximating a sphere, like the real 660 t Taipei 101 damper
-    const out: { y: number; r: number }[] = []
-    const count = 13
-    for (let i = 0; i < count; i++) {
-      const y = -BALL_R + ((i + 0.5) / count) * 2 * BALL_R
-      out.push({ y, r: Math.sqrt(Math.max(0.05, BALL_R * BALL_R - y * y)) })
-    }
-    return out
-  }, [])
+  const ballMats = useMemo(() => ({
+    gold: new THREE.MeshStandardMaterial({ color: '#f59e0b', metalness: 0.88, roughness: 0.18, emissive: '#78350f', emissiveIntensity: 0.45 }),
+    steel: new THREE.MeshStandardMaterial({ color: '#cbd5e1', metalness: 0.9, roughness: 0.25 }),
+  }), [])
+  useEffect(() => () => { ballMats.gold.dispose(); ballMats.steel.dispose() }, [ballMats])
 
   const a = useMemo(() => new THREE.Vector3(), [])
   const b = useMemo(() => new THREE.Vector3(), [])
@@ -240,19 +240,23 @@ function Damper({ engine, storyHeight }: { engine: SeismicEngine; storyHeight: n
     const lift = CABLE - Math.sqrt(CABLE * CABLE - dx * dx * 0.5) // pendulum rises as it swings
     const cy = restY + lift
     ball.current.position.set(dx, cy, 0)
-    ball.current.rotation.z = Math.atan2(dx, CABLE) * 0.6
+    const rz = Math.atan2(dx, CABLE) * 0.6
+    ball.current.rotation.z = rz
+    const cz = Math.cos(rz), sz = Math.sin(rz)
+    // ball-local point → roof frame (the ball tilts slightly as it swings)
+    const onBall = (out: THREE.Vector3, lx: number, ly: number, lz: number) => out.set(dx + cz * lx - sz * ly, cy + sz * lx + cz * ly, lz)
 
     for (let i = 0; i < 4; i++) {
       const m = cables.current[i]
       if (!m) continue
       const t = cableTop[i]
-      b.set(dx + t.x * 0.45, cy + BALL_R * 0.85, t.z * 0.45)
+      onBall(b, t.x * 0.4, BALL_R + 0.3, t.z * 0.4) // shackle ring on top
       span(m, t, b)
     }
     for (let i = 0; i < anchors.length; i++) {
       const [ux, uz] = dampDirs[i]
       a.copy(anchors[i])
-      b.set(dx + ux * BALL_R * 0.72, cy - BALL_R * 0.62, uz * BALL_R * 0.72) // attachment lug on the ball
+      onBall(b, ux * BALL_R * 0.72, -BALL_R * 0.7, uz * BALL_R * 0.72) // attachment lug on the bottom collar
       c.subVectors(b, a)
       const len = c.length()
       const housingLen = Math.min(2.3, len * 0.62)
@@ -322,12 +326,24 @@ function Damper({ engine, storyHeight }: { engine: SeismicEngine; storyHeight: n
       ))}
       {/* the mass */}
       <group ref={ball}>
-        {plates.map((pl, i) => (
-          <mesh key={i} position={[0, pl.y, 0]} castShadow>
-            <cylinderGeometry args={[pl.r, pl.r, (2 * BALL_R) / plates.length - 0.04, 40]} />
-            <meshStandardMaterial color={i % 2 ? '#f5b83d' : '#e8a42c'} metalness={0.75} roughness={0.28} emissive="#7c4a03" emissiveIntensity={0.35} />
-          </mesh>
-        ))}
+        <mesh material={ballMats.gold} castShadow>
+          <sphereGeometry args={[BALL_R, 64, 48]} />
+        </mesh>
+        {/* equator reinforcement belt */}
+        <mesh material={ballMats.steel} rotation={[Math.PI / 2, 0, 0]}>
+          <torusGeometry args={[BALL_R + 0.02, 0.09, 12, 64]} />
+        </mesh>
+        {/* top shackle plate + ring */}
+        <mesh material={ballMats.steel} position={[0, BALL_R + 0.05, 0]}>
+          <cylinderGeometry args={[0.75, 0.9, 0.2, 32]} />
+        </mesh>
+        <mesh material={ballMats.steel} position={[0, BALL_R + 0.3, 0]}>
+          <torusGeometry args={[0.55, 0.08, 10, 32]} />
+        </mesh>
+        {/* bottom collar where the dampers attach */}
+        <mesh material={ballMats.steel} position={[0, -BALL_R * 0.7, 0]}>
+          <cylinderGeometry args={[BALL_R * 0.78, BALL_R * 0.62, 0.3, 40]} />
+        </mesh>
       </group>
     </group>
   )
@@ -387,16 +403,23 @@ const VIEWS: Record<ViewMode, { pos: [number, number, number]; target: [number, 
   orbit: { pos: [-90, 70, 125], target: [0, 36, 0] },
 }
 
-function CameraRig({ view, controls }: { view: ViewMode; controls: React.RefObject<OrbitControlsImpl> }) {
+// panning is limited to a box around the towers so the scene can't be lost off-screen
+const PAN_MIN = new THREE.Vector3(-70, 0, -60)
+const PAN_MAX = new THREE.Vector3(70, 95, 60)
+
+function CameraRig({ view, controls, resetKey, userControl }: { view: ViewMode; controls: React.RefObject<OrbitControlsImpl>; resetKey: number; userControl: React.MutableRefObject<boolean> }) {
   const { camera, size } = useThree()
   const anim = useRef(1)
-  useEffect(() => { anim.current = 0 }, [view])
+  useEffect(() => { anim.current = 0; userControl.current = false }, [view, resetKey, userControl])
   const targetPos = useMemo(() => new THREE.Vector3(), [])
   const targetLook = useMemo(() => new THREE.Vector3(), [])
   useFrame((_, dt) => {
     const ctl = controls.current
     if (!ctl) return
-    if (view === 'orbit') { ctl.autoRotate = true; ctl.autoRotateSpeed = 0.6 } else ctl.autoRotate = false
+    ctl.autoRotate = view === 'orbit' && !userControl.current
+    ctl.autoRotateSpeed = 0.6
+    ctl.target.clamp(PAN_MIN, PAN_MAX)
+    if (userControl.current) anim.current = 1 // the user grabbed the camera: stop any fly-to animation
     if (anim.current >= 1) return
     anim.current = Math.min(1, anim.current + dt * 1.4)
     const v = VIEWS[view]
@@ -411,17 +434,61 @@ function CameraRig({ view, controls }: { view: ViewMode; controls: React.RefObje
   return null
 }
 
+export interface CameraApi { zoom: (factor: number) => void }
+
+/** Smooth button zoom: eases the camera distance toward a goal, clamped like wheel zoom. */
+function CameraApiBridge({ api, controls }: { api?: React.MutableRefObject<CameraApi | null>; controls: React.RefObject<OrbitControlsImpl> }) {
+  const { camera } = useThree()
+  const goal = useRef<number | null>(null)
+  const off = useMemo(() => new THREE.Vector3(), [])
+  useEffect(() => {
+    if (!api) return
+    api.current = {
+      zoom: (f) => {
+        const ctl = controls.current
+        if (!ctl) return
+        const d = camera.position.distanceTo(ctl.target)
+        goal.current = THREE.MathUtils.clamp((goal.current ?? d) * f, 8, 320)
+      },
+    }
+    return () => { api.current = null }
+  }, [api, camera, controls])
+  useFrame((_, dt) => {
+    const ctl = controls.current
+    if (goal.current === null || !ctl) return
+    off.subVectors(camera.position, ctl.target)
+    const d = off.length()
+    const next = THREE.MathUtils.lerp(d, goal.current, 1 - Math.pow(0.0005, dt))
+    camera.position.copy(ctl.target).addScaledVector(off.normalize(), next)
+    ctl.update()
+    if (Math.abs(next - goal.current) < 0.05) goal.current = null
+  })
+  return null
+}
+
 function Stepper({ engine }: { engine: SeismicEngine }) {
   useFrame((_, dt) => engine.advance(dt))
   return null
 }
 
-export default function TowerScene(props: { engine: SeismicEngine; exaggeration: React.MutableRefObject<number>; colorMode: React.MutableRefObject<ColorMode>; view: ViewMode }) {
+export default function TowerScene(props: {
+  engine: SeismicEngine
+  exaggeration: React.MutableRefObject<number>
+  colorMode: React.MutableRefObject<ColorMode>
+  view: ViewMode
+  /** bump to fly back to the current preset view */
+  resetKey?: number
+  onReset?: () => void
+  onInteract?: () => void
+  cameraApi?: React.MutableRefObject<CameraApi | null>
+}) {
   const controls = useRef<OrbitControlsImpl>(null)
+  const userControl = useRef(false)
   const facade = useMemo(() => makeFacadeTexture(), [])
   const { engine } = props
   return (
     <Canvas
+      onDoubleClick={() => props.onReset?.()}
       shadows
       dpr={[1, 2]}
       camera={{ position: VIEWS.front.pos, fov: 38, near: 0.5, far: 1200 }}
@@ -455,8 +522,25 @@ export default function TowerScene(props: { engine: SeismicEngine; exaggeration:
         <Tower engine={engine} kind="tmd" exaggeration={props.exaggeration} colorMode={props.colorMode} facade={facade} />
       </group>
       <Ground engine={engine} />
-      <OrbitControls ref={controls} enablePan={false} enableZoom={false} maxPolarAngle={Math.PI / 2 - 0.04} target={VIEWS.front.target} enableDamping />
-      <CameraRig view={props.view} controls={controls} />
+      <OrbitControls
+        ref={controls}
+        target={VIEWS.front.target}
+        enableDamping
+        dampingFactor={0.08}
+        rotateSpeed={0.7}
+        enableZoom
+        zoomSpeed={1.1}
+        zoomToCursor
+        minDistance={8}
+        maxDistance={320}
+        enablePan
+        panSpeed={0.9}
+        screenSpacePanning
+        maxPolarAngle={Math.PI / 2 - 0.04}
+        onStart={() => { userControl.current = true; props.onInteract?.() }}
+      />
+      <CameraApiBridge api={props.cameraApi} controls={controls} />
+      <CameraRig view={props.view} controls={controls} resetKey={props.resetKey ?? 0} userControl={userControl} />
     </Canvas>
   )
 }

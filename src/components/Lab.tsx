@@ -7,6 +7,9 @@ import { LiveChart, Seismogram } from './charts'
 import { Badge, Button, Section, Segmented, Slider, Toggle, cx, fmt } from './ui'
 import type { ColorMode, ViewMode } from './TowerScene'
 import FloorMonitor from './FloorMonitor'
+import ViewControls, { useViewControls } from './ViewControls'
+import SeismicAlertStrip from './AlertPanel'
+import type { AlertMonitor } from '../alerts/useAlertMonitor'
 
 const TowerScene = lazy(() => import('./TowerScene'))
 
@@ -18,7 +21,7 @@ export function useEngine() {
   }, [])
 }
 
-export default function Lab({ engine, params, setParams }: { engine: SeismicEngine; params: SimParams; setParams: (p: Partial<SimParams>) => void }) {
+export default function Lab({ engine, params, setParams, alert }: { engine: SeismicEngine; params: SimParams; setParams: (p: Partial<SimParams>) => void; alert: AlertMonitor }) {
   const [, setTick] = useState(0)
   const [view, setView] = useState<ViewMode>('front')
   const [exag, setExag] = useState(6)
@@ -27,6 +30,7 @@ export default function Lab({ engine, params, setParams }: { engine: SeismicEngi
   const exagRef = useRef(exag)
   exagRef.current = exag
   const [colorMode, setColorMode] = useState<ColorMode>('live')
+  const vc = useViewControls()
   const colorRef = useRef(colorMode)
   colorRef.current = colorMode
 
@@ -72,8 +76,9 @@ export default function Lab({ engine, params, setParams }: { engine: SeismicEngi
       <div className="space-y-4">
         <div className="panel relative overflow-hidden p-0" style={{ height: 'min(74vh, 700px)', minHeight: 460 }}>
           <Suspense fallback={<div className="grid h-full place-items-center text-sm text-slate-500">Loading 3D engine…</div>}>
-            <TowerScene engine={engine} exaggeration={exagRef} colorMode={colorRef} view={view} />
+            <TowerScene engine={engine} exaggeration={exagRef} colorMode={colorRef} view={view} resetKey={vc.resetKey} onReset={vc.reset} onInteract={vc.onInteract} cameraApi={vc.cameraApi} />
           </Suspense>
+          <ViewControls v={vc} />
 
           {/* tower cards */}
           <div className="pointer-events-none absolute inset-x-3 top-3 flex items-start justify-between gap-3 sm:inset-x-4 sm:top-4">
@@ -131,6 +136,13 @@ export default function Lab({ engine, params, setParams }: { engine: SeismicEngi
             </div>
           </div>
         </div>
+
+        {/* the graph catches the quake → the alert wakes up */}
+        <SeismicAlertStrip
+          alert={alert}
+          title="Ground motion · seismic detection"
+          getTrace={() => ({ t: engine.hist.t, v: engine.hist.ag, n: engine.hist.count, tNow: engine.t })}
+        />
 
         {/* charts + metrics */}
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">

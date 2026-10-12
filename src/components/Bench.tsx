@@ -7,6 +7,9 @@ import { intensityLabel, pgaFromMagnitude } from '../sim/ground'
 import { driftLevel, reduction } from '../sim/engine'
 import { SensorEngine } from '../sim/sensorEngine'
 import FloorMonitor from './FloorMonitor'
+import ViewControls, { useViewControls } from './ViewControls'
+import SeismicAlertStrip from './AlertPanel'
+import type { AlertMonitor } from '../alerts/useAlertMonitor'
 import type { ColorMode, ViewMode } from './TowerScene'
 
 const TowerScene = lazy(() => import('./TowerScene'))
@@ -77,12 +80,12 @@ const WIRING = [
   ['AD0 (sensor 2)', '5V', 'Address 0x69: tower with damper'],
 ]
 
-export default function Bench() {
-  const s = useSensorBench()
+export default function Bench({ s, alert }: { s: ReturnType<typeof useSensorBench>; alert: AlertMonitor }) {
   const [copied, setCopied] = useState(false)
   const engine = useMemo(() => new SensorEngine(s.sample), [s.sample])
   const [view, setView] = useState<ViewMode>('front')
   const [colorMode, setColorMode] = useState<ColorMode>('live')
+  const vc = useViewControls()
   const exagRef = useRef(6)
   const colorRef = useRef(colorMode)
   colorRef.current = colorMode
@@ -140,8 +143,9 @@ export default function Bench() {
         {/* 3D view driven by the sensors */}
         <div className="panel relative overflow-hidden p-0" style={{ height: 'min(64vh, 580px)', minHeight: 420 }}>
           <Suspense fallback={<div className="grid h-full place-items-center text-sm text-slate-500">Loading 3D engine…</div>}>
-            <TowerScene engine={engine} exaggeration={exagRef} colorMode={colorRef} view={view} />
+            <TowerScene engine={engine} exaggeration={exagRef} colorMode={colorRef} view={view} resetKey={vc.resetKey} onReset={vc.reset} onInteract={vc.onInteract} cameraApi={vc.cameraApi} />
           </Suspense>
+          <ViewControls v={vc} />
           <div className="pointer-events-none absolute inset-x-3 top-3 flex items-start justify-between gap-3 sm:inset-x-4 sm:top-4">
             <SensorCard kind="bare" title="Sensor 1 · no damper" value={a} unit={unit} peak={convert(peakOf(s.buf.current.a), s.unit)} idr={engine.mBare.peakIdr} on={active} />
             <div className="hidden md:block">
@@ -199,6 +203,17 @@ export default function Bench() {
             <span className="truncate text-emerald-300">{s.connected ? (s.lastLine || 'waiting for data…') : s.demo ? '(simulated, no serial port open)' : 'not connected'}</span>
           </div>
         </div>
+
+        <SeismicAlertStrip
+          alert={alert}
+          title="Sensor shaking · seismic detection"
+          getTrace={() => {
+            // strongest of the two sensors, keeping its sign, so the trace matches what the alert monitor sees
+            const B = s.buf.current
+            const v = B.a.map((a, i) => (Number.isNaN(B.b[i]) || Math.abs(a) >= Math.abs(B.b[i]) ? a : B.b[i]))
+            return { t: B.t, v, n: B.t.length, tNow: B.t.length ? B.t[B.t.length - 1] : 0 }
+          }}
+        />
 
         {active && <FloorMonitor engine={engine} />}
 

@@ -1,15 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BookOpen, Box, Cpu } from 'lucide-react'
+import { BookOpen, Box, Cpu, Siren } from 'lucide-react'
 import Lab, { useEngine } from './components/Lab'
 import Bench from './components/Bench'
 import Science from './components/Science'
+import Alerts from './components/Alerts'
+import AlertBanner from './components/AlertBanner'
+import { useSensorBench } from './hooks/useSensorBench'
+import { useAlertMonitor } from './alerts/useAlertMonitor'
+import { alertSound } from './alerts/sound'
 import { frequencyResponse, type SimParams } from './sim/physics'
 import { cx } from './components/ui'
 
-type Tab = 'lab' | 'bench' | 'science'
+type Tab = 'lab' | 'bench' | 'alerts' | 'science'
 const TABS: { id: Tab; label: string; icon: typeof Box }[] = [
   { id: 'lab', label: 'Simulation Lab', icon: Box },
   { id: 'bench', label: 'Hardware Bench', icon: Cpu },
+  { id: 'alerts', label: 'Alerts', icon: Siren },
   { id: 'science', label: 'How It Works', icon: BookOpen },
 ]
 
@@ -22,6 +28,17 @@ export default function App() {
   const engine = useEngine()
   const [tab, setTab] = useState<Tab>(readHash)
   const [params, setParamsState] = useState<SimParams>(engine.p)
+  // sensors live at app level so the alert monitor sees them from any page (and the port stays open across tabs)
+  const bench = useSensorBench()
+  const alert = useAlertMonitor(engine, bench)
+
+  // browsers block audio until a user gesture: unlock the alarm on the first interaction anywhere
+  useEffect(() => {
+    const unlock = () => alertSound.unlock()
+    window.addEventListener('pointerdown', unlock)
+    window.addEventListener('keydown', unlock)
+    return () => { window.removeEventListener('pointerdown', unlock); window.removeEventListener('keydown', unlock) }
+  }, [])
 
   const setParams = useCallback((p: Partial<SimParams>) => {
     engine.update(p)
@@ -45,6 +62,7 @@ export default function App() {
   const heading = {
     lab: { kicker: 'Live structural dynamics', title: <>One earthquake. Two towers. <span className="bg-gradient-to-r from-sky-300 to-cyan-200 bg-clip-text text-transparent">One tuned mass damper.</span></>, sub: 'Both 72 m towers feel the exact same ground motion. The right one has a pendulum damper in its crown that swings against the sway. Trigger a quake and compare.' },
     bench: { kicker: 'Arduino + MPU-6050', title: <>Measure it on a <span className="bg-gradient-to-r from-amber-200 to-amber-400 bg-clip-text text-transparent">real shake table</span></>, sub: 'Plug in the physical model over USB and record the roof acceleration of both buildings side by side, or use the built-in virtual shake table.' },
+    alerts: { kicker: 'Earthquake early warning', title: <>Know <span className="bg-gradient-to-r from-rose-300 to-orange-300 bg-clip-text text-transparent">before the shaking</span> peaks</>, sub: 'A live alert system watching the simulator and the Arduino sensors. When shaking crosses the threshold, every page shows a full-width alert with an alarm, so people can drop, cover and hold on.' },
     science: { kicker: 'The physics', title: <>Why a swinging mass <span className="bg-gradient-to-r from-sky-300 to-cyan-200 bg-clip-text text-transparent">stops a skyscraper</span></>, sub: 'Resonance, tuning and damping explained with the same model that powers the simulator.' },
   }[tab]
 
@@ -62,13 +80,18 @@ export default function App() {
           <nav className="ml-auto flex rounded-xl bg-white/[0.04] p-1 ring-1 ring-white/8">
             {TABS.map((t) => (
               <button key={t.id} onClick={() => go(t.id)} className={cx('flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[13px] font-semibold transition sm:px-3.5', tab === t.id ? 'bg-white text-ink-950 shadow' : 'text-slate-400 hover:text-white')}>
-                <t.icon className="h-4 w-4" />
+                <span className="relative">
+                  <t.icon className="h-4 w-4" />
+                  {t.id === 'alerts' && alert.state.active && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-rose-500 ring-2 ring-ink-950"><span className="ping-soft absolute inset-0 rounded-full bg-rose-500" /></span>}
+                </span>
                 <span className="hidden md:inline">{t.label}</span>
               </button>
             ))}
           </nav>
         </div>
       </header>
+
+      <AlertBanner alert={alert} onOpen={() => go('alerts')} />
 
       <main className="mx-auto max-w-[1500px] px-4 pb-16 pt-6 sm:px-6 sm:pt-8">
         <div key={tab} className="rise mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -85,8 +108,9 @@ export default function App() {
           )}
         </div>
 
-        {tab === 'lab' && <Lab engine={engine} params={params} setParams={setParams} />}
-        {tab === 'bench' && <Bench />}
+        {tab === 'lab' && <Lab engine={engine} params={params} setParams={setParams} alert={alert} />}
+        {tab === 'bench' && <Bench s={bench} alert={alert} />}
+        {tab === 'alerts' && <Alerts alert={alert} go={go} />}
         {tab === 'science' && <Science params={params} setParams={setParams} />}
       </main>
 

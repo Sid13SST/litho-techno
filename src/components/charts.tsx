@@ -258,3 +258,127 @@ export function SensorChart(props: { getData: () => { t: number[]; a: number[]; 
   })
   return <canvas ref={ref} className="h-full w-full" />
 }
+
+export interface AlertTrace { t: ArrayLike<number>; v: ArrayLike<number>; n: number; tNow: number }
+const ALERT_BANDS = [
+  { g: 0.02, color: '#fbbf24', name: 'Advisory' },
+  { g: 0.06, color: '#fb923c', name: 'Warning' },
+  { g: 0.15, color: '#f43f5e', name: 'Severe' },
+]
+
+/**
+ * Seismic trace with alert thresholds. The chart runs the same envelope detector as the alert
+ * monitor: where the shaking envelope crosses the threshold the trace turns red, the alert span is
+ * shaded, and an "ALERT" flag marks the moment of detection.
+ */
+export function AlertChart({ getTrace, threshold, windowSec = 20, unitLabel = 'g' }: { getTrace: () => AlertTrace; threshold: number; windowSec?: number; unitLabel?: string }) {
+  const ref = useRef<HTMLCanvasElement>(null)
+  const scale = useRef(0.05)
+  const getRef = useRef(getTrace)
+  getRef.current = getTrace
+  const thrRef = useRef(threshold)
+  thrRef.current = threshold
+  useRaf(() => {
+    const c = ref.current
+    if (!c) return
+    const { g, w, h } = setup(c)
+    const { t, v, n, tNow } = getRef.current()
+    const thr = thrRef.current
+    const padL = 50, padR = 92, padT = 22, padB = 22
+    const pw = w - padL - padR, ph = h - padT - padB
+    const tEnd = Math.max(windowSec, tNow)
+    const tStart = tEnd - windowSec
+    let i0 = 0
+    while (i0 < n && t[i0] < tStart - 2) i0++ // a little lead-in so the envelope is warm at the left edge
+    let mx = thr * 1.6
+    for (let i = i0; i < n; i++) if (t[i] >= tStart) mx = Math.max(mx, Math.abs(v[i]))
+    scale.current += (mx * 1.12 - scale.current) * (mx * 1.12 > scale.current ? 0.3 : 0.03)
+    const ymax = scale.current
+    const X = (tt: number) => padL + ((tt - tStart) / windowSec) * pw
+    const Y = (vv: number) => padT + ph / 2 - (vv / ymax) * (ph / 2)
+    g.clearRect(0, 0, w, h)
+    g.font = '10px "JetBrains Mono", monospace'
+    g.textBaseline = 'middle'
+
+    // envelope detector → alert spans + detection instants
+    const spans: [number, number][] = []
+    const flags: number[] = []
+    let env = 0, on = false, lastHot = -1e9, spanStart = 0, prevT = n > i0 ? t[i0] : 0
+    for (let i = i0; i < n; i++) {
+      const dt = Math.max(0, t[i] - prevT); prevT = t[i]
+      env = Math.max(Math.abs(v[i]), env * Math.exp(-dt / 0.9))
+      if (env >= thr) { lastHot = t[i]; if (!on) { on = true; spanStart = t[i]; flags.push(t[i]) } }
+      if (on && t[i] - lastHot > 4) { on = false; spans.push([spanStart, t[i]]) }
+    }
+    if (on) spans.push([spanStart, n ? t[n - 1] : tNow])
+    for (const [a, b] of spans) {
+      const x0 = Math.max(padL, X(a)), x1 = Math.min(padL + pw, X(b))
+      if (x1 <= x0) continue
+      const grd = g.createLinearGradient(0, padT, 0, padT + ph)
+      grd.addColorStop(0, 'rgba(244,63,94,0.16)'); grd.addColorStop(0.5, 'rgba(244,63,94,0.06)'); grd.addColorStop(1, 'rgba(244,63,94,0.16)')
+      g.fillStyle = grd
+      g.fillRect(x0, padT, x1 - x0, ph)
+    }
+
+    // grid + threshold bands
+    g.strokeStyle = 'rgba(148,163,184,0.28)'
+    g.beginPath(); g.moveTo(padL, Y(0)); g.lineTo(padL + pw, Y(0)); g.stroke()
+    g.fillStyle = AXIS; g.textAlign = 'right'
+    g.fillText(`+${ymax.toFixed(2)} ${unitLabel}`, padL - 6, Y(ymax) + 4); g.fillText('0', padL - 6, Y(0)); g.fillText(`−${ymax.toFixed(2)} ${unitLabel}`, padL - 6, Y(-ymax) - 4)
+    g.textAlign = 'left'
+    for (const b of ALERT_BANDS) {
+      if (b.g > ymax) continue
+      const armed = Math.abs(b.g - thr) < 1e-9
+      g.setLineDash(armed ? [] : [4, 4])
+      g.strokeStyle = b.color + (armed ? 'cc' : '66')
+      g.lineWidth = armed ? 1.5 : 1
+      for (const s of [1, -1]) { g.beginPath(); g.moveTo(padL, Y(s * b.g)); g.lineTo(padL + pw, Y(s * b.g)); g.stroke() }
+      g.setLineDash([]); g.lineWidth = 1
+      g.fillStyle = b.color
+      g.font = `${armed ? '700 ' : ''}10px Inter, sans-serif`
+      g.fillText(`${armed ? '▶ ' : ''}${b.name}`, padL + pw + 6, Y(b.g) - 6)
+      g.fillText(`${b.g} ${unitLabel}`, padL + pw + 6, Y(b.g) + 6)
+    }
+    g.font = '10px "JetBrains Mono", monospace'
+
+    // time axis
+    g.textAlign = 'center'; g.fillStyle = AXIS
+    const ts = niceStep(windowSec, 6)
+    for (let tt = Math.ceil(tStart / ts) * ts; tt <= tEnd; tt += ts) if (tt >= 0) g.fillText(`${tt.toFixed(0)}s`, X(tt), h - 8)
+
+    // trace: amber when quiet, red inside alert spans
+    g.save(); g.beginPath(); g.rect(padL, padT, pw, ph); g.clip()
+    const inSpan = (tt: number) => spans.some(([a, b]) => tt >= a && tt <= b)
+    let prevX = 0, prevY = 0, first = true
+    for (let i = i0; i < n; i++) {
+      if (t[i] < tStart) continue
+      const x = X(t[i]), y = Y(v[i])
+      if (!first) {
+        g.strokeStyle = inSpan(t[i]) ? '#f43f5e' : QUAKE
+        g.lineWidth = inSpan(t[i]) ? 1.8 : 1.4
+        g.beginPath(); g.moveTo(prevX, prevY); g.lineTo(x, y); g.stroke()
+      }
+      prevX = x; prevY = y; first = false
+    }
+    g.restore(); g.lineWidth = 1
+
+    // detection flags
+    for (const f of flags) {
+      if (f < tStart) continue
+      const x = X(f)
+      g.strokeStyle = '#f43f5e'; g.lineWidth = 2
+      g.beginPath(); g.moveTo(x, padT); g.lineTo(x, padT + ph); g.stroke(); g.lineWidth = 1
+      g.fillStyle = '#f43f5e'
+      g.beginPath(); g.roundRect?.(x - 1, padT - 18, 66, 16, 3); g.fill()
+      g.fillStyle = '#fff'; g.font = '700 10px Inter, sans-serif'; g.textAlign = 'left'
+      g.fillText(`⚠ ALERT ${f.toFixed(1)}s`, x + 4, padT - 10)
+      g.font = '10px "JetBrains Mono", monospace'
+    }
+    // live head
+    if (n > 0 && t[n - 1] >= tStart) {
+      g.fillStyle = on ? '#f43f5e' : QUAKE
+      g.beginPath(); g.arc(X(t[n - 1]), Y(v[n - 1]), 3.5, 0, Math.PI * 2); g.fill()
+    }
+  })
+  return <canvas ref={ref} className="h-full w-full" />
+}
