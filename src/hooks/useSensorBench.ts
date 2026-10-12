@@ -26,7 +26,7 @@ export interface TestResult {
   source: 'arduino' | 'demo'
 }
 
-const STORE_KEY = 'seismoshield-bench-v1'
+const STORE_KEY = 'lithotechno-bench-v1'
 const WINDOW = 30 // s of live history kept
 
 /** Parse one serial line → accelerations in g. Accepts "a,b", "a b", JSON and raw MPU counts. */

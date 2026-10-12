@@ -32,8 +32,8 @@ export interface AlertState {
   allClearAt: number // timestamp of the last event end (for the "all clear" toast)
 }
 
-const SETTINGS_KEY = 'seismoshield-alert-settings'
-const HISTORY_KEY = 'seismoshield-alert-history'
+const SETTINGS_KEY = 'lithotechno-alert-settings'
+const HISTORY_KEY = 'lithotechno-alert-history'
 const HOLD_MS = 4000 // keep the alert up this long after shaking drops below the threshold
 const TICK = 100
 

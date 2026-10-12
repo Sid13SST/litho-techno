@@ -15,7 +15,7 @@ import type { ColorMode, ViewMode } from './TowerScene'
 const TowerScene = lazy(() => import('./TowerScene'))
 
 export const ARDUINO_SKETCH = `/*
-  SeismoShield test bench - Arduino Uno R3 + 2x MPU-6050 (GY-521)
+  Litho Techno test bench - Arduino Uno R3 + 2x MPU-6050 (GY-521)
   Sensor 1 (0x68, AD0 -> GND) : roof of the model WITHOUT damper
   Sensor 2 (0x69, AD0 -> 5V)  : roof of the model WITH damper
   Output: "a1,a2\\n" lateral acceleration in g at ~100 Hz, 115200 baud.
@@ -104,7 +104,7 @@ export default function Bench({ s, alert }: { s: ReturnType<typeof useSensorBenc
   const download = () => {
     const url = URL.createObjectURL(new Blob([ARDUINO_SKETCH], { type: 'text/plain' }))
     const el = document.createElement('a')
-    el.href = url; el.download = 'seismoshield_bench.ino'; el.click()
+    el.href = url; el.download = 'lithotechno_bench.ino'; el.click()
     URL.revokeObjectURL(url)
   }
 

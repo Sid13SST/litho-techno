@@ -1,4 +1,4 @@
-# SeismoShield: Tuned Mass Damper Lab
+# Litho Techno: Tuned Mass Damper Lab
 
 Real-time structural dynamics in the browser: two identical 20-story towers face the same earthquake, and one has a tuned mass damper (TMD) in its crown.
 

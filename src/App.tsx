@@ -73,7 +73,7 @@ export default function App() {
           <a href="#lab" onClick={(e) => { e.preventDefault(); go('lab') }} className="flex items-center gap-2.5">
             <Logo />
             <div className="leading-tight">
-              <div className="text-[15px] font-bold tracking-tight text-white">SeismoShield</div>
+              <div className="text-[15px] font-bold tracking-tight text-white">Litho Techno</div>
               <div className="hidden text-[11px] text-slate-500 sm:block">Earthquake-resistant structures lab</div>
             </div>
           </a>
@@ -115,7 +115,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-white/5 py-6 text-center text-[12px] text-slate-500">
-        SeismoShield · physics runs entirely in your browser · built for education, not for structural design
+        Litho Techno · physics runs entirely in your browser · built for education, not for structural design
       </footer>
     </div>
   )
